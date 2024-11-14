@@ -41,3 +41,29 @@
   text-align: center;
   text-transform: capitalize;
 }
+
+.timers {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  max-width: 512px;
+}
+
+.timerContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem;
+  background: #e0e0e0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  min-width: 120px;
+  color: #333;
+}
+
+.timer {
+  font-size: 1.5rem;
+  font-family: monospace;
+  font-weight: bold;
+  color: #333;
+}

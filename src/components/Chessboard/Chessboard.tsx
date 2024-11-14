@@ -2,7 +2,7 @@
 
 import { King, Queen, Bishop, Knight, Rook, Pawn } from "@/components/Pieces";
 import styles from "./Chessboard.module.css";
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 
 type PieceColor = "white" | "black";
 
@@ -24,6 +24,15 @@ type GameState = {
     to: BoardCoordinates;
     capture?: PiecePosition;
   }>;
+  timeLeft: {
+    white: number;
+    black: number;
+  };
+  isTimerRunning: boolean;
+  isDraw: boolean;
+  drawReason?: "stalemate" | "insufficient" | "threefold" | "fifty-move";
+  movesSincePawnOrCapture: number;
+  positionHistory: string[];
 };
 
 const defaultPiecePositions: PiecePosition[] = [
@@ -561,28 +570,138 @@ const PromotionSelector = ({
   );
 };
 
-export const Chessboard = () => {
-  const [piecePositions, setPiecePositions] = useState<PiecePosition[]>(
-    defaultPiecePositions
+const Timer = ({ seconds }: { seconds: number }) => {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return (
+    <div className={styles.timer}>
+      {minutes}:{remainingSeconds.toString().padStart(2, "0")}
+    </div>
   );
+};
+
+const hasInsufficientMaterial = (board: PiecePosition[]): boolean => {
+  const pieces = board.map((p) => ({ color: p.color, type: p.type }));
+
+  // King vs King
+  if (pieces.length === 2) return true;
+
+  // King + Bishop/Knight vs King
+  if (
+    pieces.length === 3 &&
+    pieces.some((p) => p.type === "bishop" || p.type === "knight")
+  )
+    return true;
+
+  // King + Bishop vs King + Bishop (same color bishops)
+  if (
+    pieces.length === 4 &&
+    pieces.filter((p) => p.type === "bishop").length === 2
+  ) {
+    const bishops = board.filter((p) => p.type === "bishop");
+    const isSameColorSquare =
+      (xCoords.indexOf(bishops[0].position.x) + Number(bishops[0].position.y)) %
+        2 ===
+      (xCoords.indexOf(bishops[1].position.x) + Number(bishops[1].position.y)) %
+        2;
+    if (isSameColorSquare) return true;
+  }
+
+  return false;
+};
+
+const isStalemate = (
+  board: PiecePosition[],
+  currentTurn: PieceColor
+): boolean => {
+  const currentPlayerPieces = board.filter((p) => p.color === currentTurn);
+  return (
+    currentPlayerPieces.every(
+      (piece) => getAvailableMoves(piece, board).length === 0
+    ) && !isKingInCheck(board, currentTurn)
+  );
+};
+
+const getBoardPosition = (board: PiecePosition[]): string => {
+  return board
+    .sort(
+      (a, b) =>
+        Number(a.position.y) * 8 +
+        xCoords.indexOf(a.position.x) -
+        (Number(b.position.y) * 8 + xCoords.indexOf(b.position.x))
+    )
+    .map((p) => `${p.color}${p.type}${p.position.x}${p.position.y}`)
+    .join("|");
+};
+
+export const Chessboard = () => {
+  const [piecePositions, setPiecePositions] = useState<PiecePosition[]>(() => {
+    const saved = localStorage.getItem("chessPieces");
+    return saved ? JSON.parse(saved) : defaultPiecePositions;
+  });
   const [availableMoves, setAvailableMoves] = useState<BoardCoordinates[]>([]);
   const [selectedPiece, setSelectedPiece] = useState<PiecePosition | null>(
     null
   );
-  const [gameState, setGameState] = useState<GameState>({
-    currentTurn: "white",
-    isCheck: false,
-    isCheckmate: false,
-    moveHistory: [],
+  const [gameState, setGameState] = useState<GameState>(() => {
+    const saved = localStorage.getItem("chessGame");
+    return saved
+      ? JSON.parse(saved)
+      : {
+          currentTurn: "white",
+          isCheck: false,
+          isCheckmate: false,
+          moveHistory: [],
+          timeLeft: { white: 600, black: 600 },
+          isTimerRunning: false,
+          isDraw: false,
+          drawReason: undefined,
+          movesSincePawnOrCapture: 0,
+          positionHistory: [],
+        };
   });
   const [promotionSquare, setPromotionSquare] =
     useState<BoardCoordinates | null>(null);
 
-  const movePiece = (piece: PiecePosition, newPosition: BoardCoordinates) => {
-    setPiecePositions((prev) =>
-      prev.map((p) => (p === piece ? { ...p, position: newPosition } : p))
-    );
-  };
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    if (gameState.isTimerRunning && !gameState.isCheckmate) {
+      interval = setInterval(() => {
+        setGameState((prev) => {
+          const newTimeLeft = {
+            ...prev.timeLeft,
+            [prev.currentTurn]: Math.max(
+              0,
+              prev.timeLeft[prev.currentTurn] - 1
+            ),
+          };
+
+          // Check for time out
+          if (newTimeLeft[prev.currentTurn] === 0) {
+            return {
+              ...prev,
+              isTimerRunning: false,
+              isCheckmate: true,
+              timeLeft: newTimeLeft,
+            };
+          }
+
+          return {
+            ...prev,
+            timeLeft: newTimeLeft,
+          };
+        });
+      }, 1000);
+    }
+
+    return () => clearInterval(interval);
+  }, [gameState.isTimerRunning, gameState.currentTurn, gameState.isCheckmate]);
+
+  useEffect(() => {
+    localStorage.setItem("chessPieces", JSON.stringify(piecePositions));
+    localStorage.setItem("chessGame", JSON.stringify(gameState));
+  }, [piecePositions, gameState]);
 
   const mapIndexToBoardCoordinates = (rowIndex: number, colIndex: number) => {
     const rowMap: Record<number, BoardCoordinates["x"]> = {
@@ -646,6 +765,11 @@ export const Chessboard = () => {
         (move) => move.x === coordinates.x && move.y === coordinates.y
       )
     ) {
+      // Start timer if it's the first move
+      if (!gameState.isTimerRunning) {
+        setGameState((prev) => ({ ...prev, isTimerRunning: true }));
+      }
+
       // Check for pawn promotion
       if (
         selectedPiece.type === "pawn" &&
@@ -731,6 +855,58 @@ export const Chessboard = () => {
       setSelectedPiece(null);
       setAvailableMoves([]);
     }
+
+    // Get the new board state after the move
+    const newBoard = piecePositions
+      .map((p) => (p === selectedPiece ? { ...p, position: coordinates } : p))
+      .filter(
+        (p) =>
+          !(
+            p.position.x === coordinates.x &&
+            p.position.y === coordinates.y &&
+            p !== selectedPiece
+          )
+      );
+
+    // Check for draws
+    const isPawnMove = selectedPiece?.type === "pawn";
+    const isCapture = piecePositions.some(
+      (p) => p.position.x === coordinates.x && p.position.y === coordinates.y
+    );
+
+    const newMovesSincePawnOrCapture =
+      isPawnMove || isCapture ? 0 : gameState.movesSincePawnOrCapture + 1;
+
+    const newPositionHistory = [
+      ...gameState.positionHistory,
+      getBoardPosition(newBoard),
+    ];
+
+    // Check all draw conditions
+    const isInsufficientMaterial = hasInsufficientMaterial(newBoard);
+    const isCurrentStalemate = isStalemate(newBoard, gameState.currentTurn);
+    const isThreefoldRepetition =
+      newPositionHistory.filter((pos) => pos === getBoardPosition(newBoard))
+        .length >= 3;
+    const isFiftyMoveRule = newMovesSincePawnOrCapture >= 100;
+
+    const drawReason = isInsufficientMaterial
+      ? "insufficient"
+      : isCurrentStalemate
+      ? "stalemate"
+      : isThreefoldRepetition
+      ? "threefold"
+      : isFiftyMoveRule
+      ? "fifty-move"
+      : undefined;
+
+    setGameState((prev) => ({
+      ...prev,
+      isDraw: !!drawReason,
+      drawReason,
+      movesSincePawnOrCapture: newMovesSincePawnOrCapture,
+      positionHistory: newPositionHistory,
+    }));
   };
 
   const isCellSelected = (rowIndex: number, cellIndex: number) => {
@@ -788,12 +964,57 @@ export const Chessboard = () => {
     setPromotionSquare(null);
   };
 
+  const status = gameState.isCheckmate
+    ? `Checkmate! ${
+        gameState.currentTurn === "white" ? "Black" : "White"
+      } wins!`
+    : gameState.isDraw
+    ? `Draw by ${
+        gameState.drawReason === "stalemate"
+          ? "stalemate"
+          : gameState.drawReason === "insufficient"
+          ? "insufficient material"
+          : gameState.drawReason === "threefold"
+          ? "threefold repetition"
+          : "fifty-move rule"
+      }`
+    : gameState.isCheck
+    ? "Check!"
+    : `Current turn: ${gameState.currentTurn}`;
+
+  const resetGame = () => {
+    localStorage.removeItem("chessGame");
+    setGameState({
+      currentTurn: "white",
+      isCheck: false,
+      isCheckmate: false,
+      moveHistory: [],
+      timeLeft: {
+        white: 600,
+        black: 600,
+      },
+      isTimerRunning: false,
+      isDraw: false,
+      drawReason: undefined,
+      movesSincePawnOrCapture: 0,
+      positionHistory: [],
+    });
+    setPiecePositions(defaultPiecePositions);
+  };
+
   return (
     <div className={styles.chessboard}>
       <h1>Chessboard</h1>
-      <div className={styles.status}>
-        {gameState.isCheck ? "Check! " : ""}
-        {`${gameState.currentTurn === "white" ? "White" : "Black"}'s turn`}
+      <div className={styles.status}>{status}</div>
+      <div className={styles.timers}>
+        <div className={styles.timerContainer}>
+          <span>Black</span>
+          <Timer seconds={gameState.timeLeft.black} />
+        </div>
+        <div className={styles.timerContainer}>
+          <span>White</span>
+          <Timer seconds={gameState.timeLeft.white} />
+        </div>
       </div>
       <div style={{ position: "relative" }}>
         <table>
@@ -878,6 +1099,7 @@ export const Chessboard = () => {
           </div>
         )}
       </div>
+      <button onClick={resetGame}>New Game</button>
     </div>
   );
 };
