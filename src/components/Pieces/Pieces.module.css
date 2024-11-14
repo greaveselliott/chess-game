@@ -1,0 +1,19 @@
+.piece {
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.white {
+  background-color: rgb(220, 220, 220);
+  color: black;
+}
+
+.black {
+  background-color: rgb(25, 25, 25);
+  color: white;
+}

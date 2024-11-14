@@ -1,0 +1,44 @@
+.selected {
+  background-color: rgba(255, 255, 0, 0.5) !important;
+}
+
+.cell {
+  text-align: center;
+  vertical-align: middle;
+  position: relative;
+  width: 64px;  /* adjust based on your board size */
+  height: 64px; /* adjust based on your board size */
+}
+
+.cell img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80%;  /* adjust size as needed */
+  height: 80%; /* adjust size as needed */
+}
+
+.status {
+  margin-bottom: 1rem;
+  font-size: 1.2rem;
+  font-weight: bold;
+  text-align: center;
+}
+
+.promotionSelector {
+  position: absolute;
+  background: white;
+  border: 2px solid #333;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+  z-index: 1000;
+}
+
+.promotionSelector > div {
+  padding: 8px;
+  cursor: pointer;
+}
+
+.promotionSelector > div:hover {
+  background: #eee;
+} 
