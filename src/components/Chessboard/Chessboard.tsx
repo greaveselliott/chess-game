@@ -667,30 +667,24 @@ const getBoardPosition = (board: PiecePosition[]): string => {
 };
 
 export const Chessboard = () => {
-  const [piecePositions, setPiecePositions] = useState<PiecePosition[]>(() => {
-    const saved = localStorage.getItem("chessPieces");
-    return saved ? JSON.parse(saved) : defaultPiecePositions;
-  });
+  const [piecePositions, setPiecePositions] = useState<PiecePosition[]>(
+    defaultPiecePositions
+  );
   const [availableMoves, setAvailableMoves] = useState<BoardCoordinates[]>([]);
   const [selectedPiece, setSelectedPiece] = useState<PiecePosition | null>(
     null
   );
-  const [gameState, setGameState] = useState<GameState>(() => {
-    const saved = localStorage.getItem("chessGame");
-    return saved
-      ? JSON.parse(saved)
-      : {
-          currentTurn: "white",
-          isCheck: false,
-          isCheckmate: false,
-          moveHistory: [],
-          timeLeft: { white: 600, black: 600 },
-          isTimerRunning: false,
-          isDraw: false,
-          drawReason: undefined,
-          movesSincePawnOrCapture: 0,
-          positionHistory: [],
-        };
+  const [gameState, setGameState] = useState<GameState>({
+    currentTurn: "white",
+    isCheck: false,
+    isCheckmate: false,
+    moveHistory: [],
+    timeLeft: { white: 600, black: 600 },
+    isTimerRunning: false,
+    isDraw: false,
+    drawReason: undefined,
+    movesSincePawnOrCapture: 0,
+    positionHistory: [],
   });
   const [promotionSquare, setPromotionSquare] =
     useState<BoardCoordinates | null>(null);
@@ -698,7 +692,11 @@ export const Chessboard = () => {
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
-    if (gameState.isTimerRunning && !gameState.isCheckmate) {
+    if (
+      gameState.isTimerRunning &&
+      !gameState.isCheckmate &&
+      !gameState.isDraw
+    ) {
       interval = setInterval(() => {
         setGameState((prev) => {
           const newTimeLeft = {
@@ -709,7 +707,7 @@ export const Chessboard = () => {
             ),
           };
 
-          // Check for time out
+          // Check for timeout
           if (newTimeLeft[prev.currentTurn] === 0) {
             return {
               ...prev,
@@ -728,7 +726,12 @@ export const Chessboard = () => {
     }
 
     return () => clearInterval(interval);
-  }, [gameState.isTimerRunning, gameState.currentTurn, gameState.isCheckmate]);
+  }, [
+    gameState.isTimerRunning,
+    gameState.currentTurn,
+    gameState.isCheckmate,
+    gameState.isDraw,
+  ]);
 
   useEffect(() => {
     localStorage.setItem("chessPieces", JSON.stringify(piecePositions));
@@ -782,6 +785,10 @@ export const Chessboard = () => {
   };
 
   const handlePieceClick = (piece: PiecePosition) => {
+    if (piece.color !== gameState.currentTurn) {
+      return;
+    }
+
     setSelectedPiece(piece);
     setAvailableMoves(getAvailableMoves(piece, piecePositions, gameState));
   };
@@ -797,6 +804,24 @@ export const Chessboard = () => {
         (move) => move.x === coordinates.x && move.y === coordinates.y
       )
     ) {
+      // Start timer if it's not running
+      if (!gameState.isTimerRunning) {
+        setGameState((prev) => ({
+          ...prev,
+          isTimerRunning: true,
+        }));
+      }
+
+      // Check for pawn promotion
+      if (
+        selectedPiece.type === "pawn" &&
+        ((selectedPiece.color === "white" && coordinates.y === "8") ||
+          (selectedPiece.color === "black" && coordinates.y === "1"))
+      ) {
+        setPromotionSquare(coordinates);
+        return; // Wait for promotion selection
+      }
+
       // Check for en passant capture
       const isEnPassant =
         selectedPiece.type === "pawn" &&
@@ -859,7 +884,6 @@ export const Chessboard = () => {
       setSelectedPiece(null);
       setAvailableMoves([]);
     }
-    // ... rest of the function
   };
 
   const isCellSelected = (rowIndex: number, cellIndex: number) => {
@@ -893,24 +917,6 @@ export const Chessboard = () => {
     setGameState((prev) => ({
       ...prev,
       currentTurn: prev.currentTurn === "white" ? "black" : "white",
-      isCheck: isKingInCheck(
-        piecePositions,
-        prev.currentTurn === "white" ? "black" : "white",
-        gameState
-      ),
-      moveHistory: [
-        ...prev.moveHistory,
-        {
-          piece: { ...selectedPiece, type: pieceType },
-          from: selectedPiece.position,
-          to: promotionSquare,
-          capture: piecePositions.find(
-            (p) =>
-              p.position.x === promotionSquare.x &&
-              p.position.y === promotionSquare.y
-          ),
-        },
-      ],
     }));
 
     setSelectedPiece(null);
@@ -935,26 +941,6 @@ export const Chessboard = () => {
     : gameState.isCheck
     ? "Check!"
     : `Current turn: ${gameState.currentTurn}`;
-
-  const resetGame = () => {
-    localStorage.removeItem("chessGame");
-    setGameState({
-      currentTurn: "white",
-      isCheck: false,
-      isCheckmate: false,
-      moveHistory: [],
-      timeLeft: {
-        white: 600,
-        black: 600,
-      },
-      isTimerRunning: false,
-      isDraw: false,
-      drawReason: undefined,
-      movesSincePawnOrCapture: 0,
-      positionHistory: [],
-    });
-    setPiecePositions(defaultPiecePositions);
-  };
 
   return (
     <div className={styles.chessboard}>
@@ -1053,9 +1039,7 @@ export const Chessboard = () => {
           </div>
         )}
       </div>
-      <button onClick={resetGame}>New Game</button>
     </div>
   );
 };
-
 export default Chessboard;
